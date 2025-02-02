@@ -18,6 +18,8 @@ gunicorn = "*"
 mysqlclient = "*"
 flask-admin = "*"
 sqlalchemy = "*"
+flask-wtf = "*"
+flask-jwt-extended = "*"
 
 [requires]
 python_version = "3.10"

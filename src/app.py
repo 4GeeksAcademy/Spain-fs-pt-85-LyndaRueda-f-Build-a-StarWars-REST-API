@@ -8,18 +8,18 @@ from flask_swagger import swagger
 from flask_cors import CORS
 from utils import APIException, generate_sitemap
 from admin import setup_admin
-from models import db, User, Character, Episode, Location, Favorite  # Importar modelos
-
+from models import db, User, Character, Episode, Location, Favorite
+from flask_jwt_extended import create_access_token, get_jwt_identity, jwt_required, JWTManager
 
 app = Flask(__name__)
 app.url_map.strict_slashes = False
 
-# Config base de datos
+# Config base datos
 db_url = os.getenv("DATABASE_URL")
-if db_url is not None:
+if db_url:
     app.config['SQLALCHEMY_DATABASE_URI'] = db_url.replace("postgres://", "postgresql://")
 else:
-    app.config['SQLALCHEMY_DATABASE_URI'] = "sqlite:////tmp/test.db"
+    app.config['SQLALCHEMY_DATABASE_URI'] = "sqlite:///tmp/test.db"
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 MIGRATE = Migrate(app, db)
@@ -27,15 +27,52 @@ db.init_app(app)
 CORS(app)
 setup_admin(app)
 
-# Handle/serialize errors like a JSON object
+# Setup the Flask-JWT-Extended extension
+app.config["JWT_SECRET_KEY"] = "lynda2025"  # Change this!
+jwt = JWTManager(app)
+
+# Manejo de errores
 @app.errorhandler(APIException)
 def handle_invalid_usage(error):
     return jsonify(error.to_dict()), error.status_code
 
-# generate sitemap with all your endpoints
+# Generación de sitemap
 @app.route('/')
 def sitemap():
     return generate_sitemap(app)
+
+# Endpoints para favoritos de un usuario
+@app.route('/users/<int:user_id>/favorites', methods=['POST'])
+def add_favorite(user_id):  # Se cambia el nombre de la función para evitar duplicaciones
+    user = User.query.get(user_id)
+    if not user:
+        return jsonify({"msg": "User not found"}), 404
+
+    data = request.json
+    if not data:
+        return jsonify({"msg": "No input data provided"}), 400
+
+    # Verificar si los IDs de referencia existen
+    character = Character.query.get(data.get("character_id")) if data.get("character_id") else None
+    episode = Episode.query.get(data.get("episode_id")) if data.get("episode_id") else None
+    location = Location.query.get(data.get("location_id")) if data.get("location_id") else None
+
+    if data.get("character_id") and not character:
+        return jsonify({"msg": "Character not found"}), 404
+    if data.get("episode_id") and not episode:
+        return jsonify({"msg": "Episode not found"}), 404
+    if data.get("location_id") and not location:
+        return jsonify({"msg": "Location not found"}), 404
+
+    new_favorite = Favorite(
+        user_id=user_id,
+        character_id=data.get("character_id"),
+        episode_id=data.get("episode_id"),
+        location_id=data.get("location_id")
+    )
+    db.session.add(new_favorite)
+    db.session.commit()
+    return jsonify(new_favorite.serialize()), 201
 
 # Endpoints para User
 @app.route('/users', methods=['GET'])
@@ -324,6 +361,40 @@ def delete_favorite(id):
     db.session.delete(favorite)
     db.session.commit()
     return jsonify({"msg": f"Favorite with ID {id} deleted"}), 200
+
+# create_access_token() funcion generada desde flask-jwt
+@app.route("/login", methods=["POST"])
+def login():
+    email = request.json.get("email")
+    password = request.json.get("password")
+
+    if not email or not password:
+        return jsonify({"msg": "Email and password are required"}), 400
+
+    # Buscar al usuario por email
+    user = db.session.execute(db.select(User).filter_by(email=email)).scalar_one_or_none()
+
+    # Verificar si el usuario existe
+    if not user:
+        return jsonify({"msg": "User does not exist. Please create an account."}), 404
+
+    # Verificar la contraseña
+    if password == user.password:
+        access_token = create_access_token(identity=email)
+        return jsonify(access_token=access_token), 200
+
+    return jsonify({"msg": "Bad username or password"}), 401
+
+# Protect a route with jwt_required, which will kick out requests
+# without a valid JWT present.
+@app.route("/infoperfil", methods=["GET"])
+@jwt_required()
+def get_infoperfil():
+    # Access the identity of the current user with get_jwt_identity
+    current_user = get_jwt_identity()
+    print(current_user)
+    return jsonify(logged_in_as=current_user), 200
+
 
 # Corre app
 if __name__ == '__main__':

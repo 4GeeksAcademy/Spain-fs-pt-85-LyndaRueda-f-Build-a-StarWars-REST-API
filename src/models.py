@@ -2,10 +2,9 @@ from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy.orm import mapped_column
 from sqlalchemy import Integer, String, Boolean
 
-
 db = SQLAlchemy()
 
-# Tabla intermedia para la relación muchos a muchos entre Users y Favorites
+# Relación muchos a muchos entre Users y Favorites
 user_favorite = db.Table(
     'user_favorite',
     db.Column('user_id', db.Integer, db.ForeignKey('users.id'), primary_key=True),
@@ -16,17 +15,14 @@ user_favorite = db.Table(
 class User(db.Model):
     __tablename__ = 'users'
     id = db.Column(db.Integer, primary_key=True)
-    username = db.Column(db.String(80), unique=True, nullable=False)
     email = db.Column(db.String(120), unique=True, nullable=False)
     password = db.Column(db.String(120), nullable=False)
 
-    # Relación muchos a muchos con la tabla intermedia
-    favorites = db.relationship('Favorite', secondary=user_favorite, backref='users')
+    favorites = db.relationship('Favorite', back_populates='user')
 
     def serialize(self):
         return {
             "id": self.id,
-            "username": self.username,
             "email": self.email,
             "favorites": [favorite.serialize() for favorite in self.favorites],
         }
@@ -46,11 +42,13 @@ class Character(db.Model):
     status = db.Column(db.String(50), nullable=False)
     species = db.Column(db.String(50), nullable=False)
     gender = db.Column(db.String(50), nullable=False)
-    origin = db.Column(db.String(120), nullable=True)
-    location = db.Column(db.String(120), nullable=True)
+    origin_id = db.Column(db.Integer, db.ForeignKey('locations.id'), nullable=True)
+    location_id = db.Column(db.Integer, db.ForeignKey('locations.id'), nullable=True)
     image = db.Column(db.String(250), nullable=True)
 
-    episodes = db.relationship('Episode', secondary=character_episode, backref='characters')
+    episodes = db.relationship('Episode', secondary=character_episode, back_populates='characters')
+    origin = db.relationship('Location', foreign_keys=[origin_id])
+    location = db.relationship('Location', foreign_keys=[location_id])
 
     def serialize(self):
         return {
@@ -59,8 +57,8 @@ class Character(db.Model):
             "status": self.status,
             "species": self.species,
             "gender": self.gender,
-            "origin": self.origin,
-            "location": self.location,
+            "origin": self.origin.serialize() if self.origin else None,
+            "location": self.location.serialize() if self.location else None,
             "image": self.image,
             "episodes": [episode.serialize() for episode in self.episodes],
         }
@@ -72,6 +70,8 @@ class Episode(db.Model):
     name = db.Column(db.String(120), nullable=False)
     air_date = db.Column(db.String(50), nullable=True)
     episode_code = db.Column(db.String(50), nullable=False)
+
+    characters = db.relationship('Character', secondary=character_episode, back_populates='episodes')
 
     def serialize(self):
         return {
@@ -114,8 +114,9 @@ class Favorite(db.Model):
     def serialize(self):
         return {
             "id": self.id,
-            "user_id": self.user_id,
+            "user": self.user.serialize() if self.user else None,
             "character": self.character.serialize() if self.character else None,
             "episode": self.episode.serialize() if self.episode else None,
             "location": self.location.serialize() if self.location else None,
         }
+
